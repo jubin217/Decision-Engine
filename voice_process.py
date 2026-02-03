@@ -1,45 +1,59 @@
 import time
-import sounddevice as sd
 import queue
 import json
+import sounddevice as sd
 import speech_recognition as sr
 from multiprocessing import Queue
 from vosk import Model, KaldiRecognizer
 
+print("🎤 Unified Voice Process Started")
 
 def run_voice_process(event_queue: Queue):
     SAMPLE_RATE = 16000
     BLOCK_SIZE = 4000
 
-    # English (VOSK)
+    # ---------- AUDIO QUEUE ----------
+    audio_q = queue.Queue()
+
+    def audio_callback(indata, frames, time_info, status):
+        audio_q.put(bytes(indata))
+
+    # ---------- ENGLISH (VOSK) ----------
     vosk_model = Model("models/en")
-    recognizer = KaldiRecognizer(vosk_model, SAMPLE_RATE)
+    vosk_rec = KaldiRecognizer(vosk_model, SAMPLE_RATE)
 
     ENGLISH_KEYWORDS = {
         "help", "emergency", "accident", "danger",
         "save", "hurt", "fall", "fire"
     }
 
-    # Malayalam (Google ASR)
+    # ---------- MALAYALAM (GOOGLE ASR) ----------
     sr_rec = sr.Recognizer()
-    mic = sr.Microphone()
 
     MALAYALAM_KEYWORDS = {
-        "സഹായം", "രക്ഷിക്കൂ", "വീണു", "അയ്യോ", "വയ്യ"
+        "സഹായം", "രക്ഷിക്കൂ", "വീണു",
+        "അയ്യോ", "വയ്യ"
     }
 
-    audio_q = queue.Queue()
+    last_ml_time = 0
 
-    def audio_callback(indata, frames, time_info, status):
-        audio_q.put(bytes(indata))
+    with sd.RawInputStream(
+        samplerate=SAMPLE_RATE,
+        blocksize=BLOCK_SIZE,
+        dtype="int16",
+        channels=1,
+        callback=audio_callback
+    ):
+        print("🎤 Mic acquired (single owner)")
 
-    def english_loop():
         while True:
             data = audio_q.get()
-            if recognizer.AcceptWaveform(data):
-                text = json.loads(recognizer.Result()).get("text", "").lower()
+
+            # ---------- ENGLISH (FAST) ----------
+            if vosk_rec.AcceptWaveform(data):
+                text = json.loads(vosk_rec.Result()).get("text", "").lower()
             else:
-                text = json.loads(recognizer.PartialResult()).get("partial", "").lower()
+                text = json.loads(vosk_rec.PartialResult()).get("partial", "").lower()
 
             for w in ENGLISH_KEYWORDS:
                 if w in text:
@@ -49,38 +63,25 @@ def run_voice_process(event_queue: Queue):
                         "word": w,
                         "time": time.time()
                     })
+                    print(f"🔊 EN detected: {w}")
 
-    def malayalam_loop():
-        with mic as source:
-            sr_rec.adjust_for_ambient_noise(source)
+            # ---------- MALAYALAM (SLOW, PERIODIC) ----------
+            now = time.time()
+            if now - last_ml_time > 2:   # throttle Google ASR
+                last_ml_time = now
+                try:
+                    audio = sr.AudioData(data, SAMPLE_RATE, 2)
+                    ml_text = sr_rec.recognize_google(audio, language="ml-IN")
 
-        while True:
-            try:
-                with mic as source:
-                    audio = sr_rec.listen(source, phrase_time_limit=4)
-                text = sr_rec.recognize_google(audio, language="ml-IN")
+                    for w in MALAYALAM_KEYWORDS:
+                        if w in ml_text:
+                            event_queue.put({
+                                "type": "voice",
+                                "lang": "ML",
+                                "word": w,
+                                "time": now
+                            })
+                            print(f"🔊 ML detected: {w}")
 
-                for w in MALAYALAM_KEYWORDS:
-                    if w in text:
-                        event_queue.put({
-                            "type": "voice",
-                            "lang": "ML",
-                            "word": w,
-                            "time": time.time()
-                        })
-            except:
-                pass
-
-    with sd.RawInputStream(
-        samplerate=SAMPLE_RATE,
-        blocksize=BLOCK_SIZE,
-        dtype="int16",
-        channels=1,
-        callback=audio_callback
-    ):
-        import threading
-        threading.Thread(target=english_loop, daemon=True).start()
-        threading.Thread(target=malayalam_loop, daemon=True).start()
-
-        while True:
-            time.sleep(1)
+                except:
+                    pass

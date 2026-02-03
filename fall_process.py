@@ -4,7 +4,7 @@ from multiprocessing import Queue
 from fall import SimpleHighAccuracyFallDetector
 
 
-def run_fall_process(event_queue: Queue, cam_index=1):
+def run_fall_process(event_queue: Queue, cam_index=0):
     detector = SimpleHighAccuracyFallDetector()
 
     def fall_state_callback(state, timestamp):
@@ -23,6 +23,15 @@ def run_fall_process(event_queue: Queue, cam_index=1):
     if not cap.isOpened():
         event_queue.put({"type": "error", "source": "camera"})
         return
+
+    # ✅ NEW: confirm camera + fall pipeline is alive
+    event_queue.put({
+        "type": "fall_state",
+        "state": "CAMERA_ACTIVE",
+        "time": time.time()
+    })
+
+    print("📷 Camera opened, fall detection running")
 
     while True:
         ret, frame = cap.read()

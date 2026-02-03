@@ -15,17 +15,12 @@ class EmergencyDecisionEngine:
 
     # ================= FALL INPUT =================
     def update_fall_state(self, state: str, timestamp: float):
-        """
-        state: "FALL_DETECTED" or "MONITORING"
-        """
-        if state == "FALL_DETECTED":
-            if self.fall_state != "FALL_DETECTED":
-                self.fall_start_time = timestamp
-        else:
-            self.fall_start_time = None
 
-        self.fall_state = state
-        self.evaluate(timestamp)
+        if state == "CAMERA_ACTIVE":
+          print("🟢 Fall system ACTIVE (camera + model running)")
+          self.fall_state = "MONITORING"
+          return
+
 
     # ================= VOICE INPUT =================
     def register_voice_keyword(self, keyword: str, timestamp: float):
@@ -78,3 +73,9 @@ class EmergencyDecisionEngine:
         print(f"Reason: {reason}")
         print(f"Time  : {time.strftime('%H:%M:%S')}")
         print("!" * 60 + "\n")
+
+    def emergency_complete(self):
+       self.emergency_active = False
+       self.voice_history.clear()
+       print("🟢 Emergency state reset")
+

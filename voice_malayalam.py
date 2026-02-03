@@ -336,3 +336,25 @@ def main():
 if __name__ == "__main__":
     main()
     print("\n🙏 Thank you!")
+
+
+
+    # ================= MULTIPROCESS ENTRY =================
+def run_malayalam_voice_process(event_queue):
+    detector = SimpleMalayalamDetector()
+
+    original_handle = detector.handle_emergency_simple
+
+    def patched_handle(text, keywords, languages):
+        now = time.time()
+        for kw in keywords:
+            event_queue.put({
+                "type": "voice",
+                "lang": "ML",
+                "word": kw,
+                "time": now
+            })
+        original_handle(text, keywords, languages)
+
+    detector.handle_emergency_simple = patched_handle
+    detector.listen_simple()
