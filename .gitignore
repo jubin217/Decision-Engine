@@ -7,7 +7,7 @@
 /logs/
 /emergency_logs/
 /recordings/
-*.pt
+
 
 # Node / React
 /website/node_modules/
