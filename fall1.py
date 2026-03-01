@@ -10,8 +10,6 @@ class SimpleHighAccuracyFallDetector:
     def __init__(self):
         print("Loading YOLOv8 Pose Estimation for fall detection...")
         
-        self.on_state_change = None  # callback hook for decision engine
-
         # Load YOLOv8 pose model (this works reliably)
         self.pose_model = YOLO('yolov8n-pose.pt')  # Fast and accurate
         
@@ -166,8 +164,7 @@ class SimpleHighAccuracyFallDetector:
 
     def update_state_machine(self, fall_confidence, stand_confidence):
         """Smart state management to reduce false alarms"""
-        now = time.time()
-        current_time = now
+        current_time = time.time()
         
         if self.state == "MONITORING":
             if fall_confidence > self.fall_confidence_threshold:
@@ -183,11 +180,9 @@ class SimpleHighAccuracyFallDetector:
                     self.total_falls += 1
                     self.consecutive_stand_frames = 0
                     
-                    if self.on_state_change:
-                        self.on_state_change(self.state, now)
-                    
                     print(f"🚨 FALL DETECTED! Confidence: {fall_confidence:.3f}")
-                    # print("System paused. Stand up to resume monitoring...")
+                    print(f"Total falls: {self.total_falls}")
+                    print("System paused. Stand up to resume monitoring...")
             else:
                 # Reset if confidence drops
                 self.consecutive_fall_frames = max(0, self.consecutive_fall_frames - 2)
@@ -201,25 +196,13 @@ class SimpleHighAccuracyFallDetector:
                     self.state = "MONITORING"
                     self.consecutive_fall_frames = 0
                     self.fall_confidence_history.clear()
-                    
-                    if self.on_state_change:
-                        self.on_state_change(self.state, now)
-                        
                     print("✅ PERSON STOOD UP! Resuming monitoring...")
             
             # Safety timeout - resume monitoring after 30 seconds
-            # Note: For emergency system, we might NOT want to auto-resume so quickly, 
-            # but falling back to monitoring if it was a false alarm is okay.
             elif current_time - self.fall_start_time > 30:
-                # Optional: Don't auto-reset if we want to force manual reset for true emergencies
-                # But for this logic we'll keep it to avoid getting stuck
                 self.state = "MONITORING"
                 self.consecutive_fall_frames = 0
                 self.fall_confidence_history.clear()
-                
-                if self.on_state_change:
-                        self.on_state_change(self.state, now)
-                        
                 print("⏰ Safety timeout: Resuming monitoring")
 
     def process_frame_fast(self, frame):
@@ -247,48 +230,15 @@ class SimpleHighAccuracyFallDetector:
         
         return fall_confidence, stand_confidence, keypoints
 
-    def draw_results(self, frame, fall_confidence=0.0, stand_confidence=0.0, keypoints=None, emergency_active=False):
+    def draw_results(self, frame, fall_confidence, stand_confidence, keypoints):
         """Draw comprehensive visualization"""
-        # ================= EMERGENCY OVERLAY =================
-        if emergency_active:
-            # Flashing red/yellow alert
-            pulse = int(time.time() * 10) % 2
-            bg_color = (0, 0, 255) if pulse == 0 else (0, 255, 255)  # Red / Yellow flash
-            text_color = (255, 255, 255) if pulse == 0 else (0, 0, 0) # White / Black text
-            
-            # Draw semi-transparent background
-            overlay = frame.copy()
-            cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), bg_color, -1)
-            cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-            
-            # Draw massive text
-            alert_text = "🚨 EMERGENCY CONFIRMED! 🚨"
-            font_scale = 1.2
-            thickness = 4
-            text_size = cv2.getTextSize(alert_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
-            text_x = (frame.shape[1] - text_size[0]) // 2
-            text_y = (frame.shape[0] + text_size[1]) // 2
-            
-            cv2.putText(frame, alert_text, (text_x, text_y), 
-                       cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness)
-            
-            # Subtitle
-            sub_text = "HELP IS ON THE WAY"
-            sub_size = cv2.getTextSize(sub_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
-            sub_x = (frame.shape[1] - sub_size[0]) // 2
-            cv2.putText(frame, sub_text, (sub_x, text_y + 50), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, text_color, 2)
-            
-            return # Skip other drawings to keep focus on emergency
-
-        # ================= STANDARD DRAWING =================
         # State-based coloring
         if self.state == "MONITORING":
             color = (0, 255, 0)  # Green
             status_text = "MONITORING - System Active"
         else:
             color = (0, 0, 255)  # Red
-            status_text = "FALL DETECTED!"
+            status_text = "FALL DETECTED - Stand Up to Resume"
         
         # Draw status header
         cv2.putText(frame, status_text, (20, 40), 
@@ -296,9 +246,13 @@ class SimpleHighAccuracyFallDetector:
         
         # Draw confidence information
         info_y = 80
-        cv2.putText(frame, f"Fall Conf: {fall_confidence:.2f}", (20, info_y), 
+        cv2.putText(frame, f"Fall Confidence: {fall_confidence:.3f}", (20, info_y), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-        cv2.putText(frame, f"Stand Conf: {stand_confidence:.2f}", (20, info_y + 25), 
+        cv2.putText(frame, f"Stand Confidence: {stand_confidence:.3f}", (20, info_y + 25), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(frame, f"Total Falls: {self.total_falls}", (20, info_y + 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(frame, f"State: {self.state}", (20, info_y + 75), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         
         # Draw pose skeleton if keypoints available
@@ -343,10 +297,85 @@ class SimpleHighAccuracyFallDetector:
                          (0, 0, pulse_intensity), -1)
             cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
             
-            alert_text = "FALL DETECTED!"
-            text_size = cv2.getTextSize(alert_text, cv2.FONT_HERSHEY_SIMPLEX, 1.5, 4)[0]
+            alert_text = "FALL DETECTED! STAND UP TO CONTINUE MONITORING"
+            text_size = cv2.getTextSize(alert_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
             text_x = (frame.shape[1] - text_size[0]) // 2
-            text_y = (frame.shape[0] + text_size[1]) // 2
-            cv2.putText(frame, alert_text, (text_x, text_y), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 4)
+            cv2.putText(frame, alert_text, (text_x, frame.shape[0] - 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
+def main():
+    print("🚀 Starting Simple High-Accuracy Fall Detection")
+    print("=" * 60)
+    print("SYSTEM FEATURES:")
+    print("✅ Real-time pose estimation")
+    print("✅ Proven fall detection algorithms") 
+    print("✅ State machine for false alarm reduction")
+    print("✅ Visual feedback with pose skeleton")
+    print("=" * 60)
+    print("INSTRUCTIONS:")
+    print("1. System will detect falls automatically")
+    print("2. After fall detection, monitoring stops")
+    print("3. Stand up completely to resume monitoring")
+    print("4. Press 'q' to quit, 'r' to reset")
+    print("=" * 60)
+    
+    detector = SimpleHighAccuracyFallDetector()
+    
+    # Camera setup for optimal performance
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    
+    # Performance tracking
+    fps_counter = 0
+    fps = 0
+    prev_time = time.time()
+    
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("❌ Failed to grab frame")
+                break
+            
+            # Calculate FPS
+            current_time = time.time()
+            fps_counter += 1
+            if current_time - prev_time >= 1.0:
+                fps = fps_counter
+                fps_counter = 0
+                prev_time = current_time
+            
+            # Process frame
+            fall_conf, stand_conf, keypoints = detector.process_frame_fast(frame)
+            
+            # Draw results
+            detector.draw_results(frame, fall_conf, stand_conf, keypoints)
+            
+            # Display FPS
+            cv2.putText(frame, f"FPS: {fps}", (frame.shape[1] - 100, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            
+            cv2.imshow('High-Accuracy Fall Detection', frame)
+            
+            # Handle key presses
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('r'):
+                detector.state = "MONITORING"
+                detector.consecutive_fall_frames = 0
+                detector.fall_confidence_history.clear()
+                print("🔄 System reset to monitoring state")
+                
+    except KeyboardInterrupt:
+        print("\n🛑 Stopping detection...")
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+        print(f"\n📊 Session Summary: {detector.total_falls} falls detected")
+
+if __name__ == "__main__":
+    main()
