@@ -1,8 +1,15 @@
 import time
 from collections import deque
+import firebase_admin
+from firebase_admin import credentials, firestore
+from datetime import datetime
+import os
 
 class EmergencyDecisionEngine:
     def __init__(self, emergency_flag=None):
+        # --- FIREBASE SETUP ---
+        self.db = self._init_firebase()
+
         # --- SHARED STATE ---
         self.emergency_flag = emergency_flag
 
@@ -86,6 +93,41 @@ class EmergencyDecisionEngine:
             )
             return
 
+    def _init_firebase(self):
+        try:
+            # Check if already initialized
+            if not firebase_admin._apps:
+                # We need a service account key. 
+                # For now, we'll look for 'service_account.json' in the current directory.
+                key_path = os.path.join(os.getcwd(), 'service_account.json')
+                if os.path.exists(key_path):
+                    cred = credentials.Certificate(key_path)
+                    firebase_admin.initialize_app(cred)
+                    print("🔥 Firebase Admin initialized successfully.")
+                else:
+                    print("⚠️ Firebase Service Account key (serviceAccountKey.json) not found. Cloud syncing DISABLED.")
+                    return None
+            return firestore.client()
+        except Exception as e:
+            print(f"❌ Error initializing Firebase: {e}")
+            return None
+
+    def push_to_firestore(self, reason):
+        if not self.db:
+            return
+        
+        try:
+            doc_ref = self.db.collection('emergencies').document()
+            doc_ref.set({
+                'reason': reason,
+                'timestamp': firestore.SERVER_TIMESTAMP,
+                'type': 'CRITICAL',
+                'location': 'Living Room' # Placeholder or dynamic if available
+            })
+            print(f"✅ Emergency logged to Firestore (ID: {doc_ref.id})")
+        except Exception as e:
+            print(f"❌ Failed to sync with Firestore: {e}")
+
     # ================= OUTPUT =================
     def trigger_emergency(self, reason):
         self.emergency_triggered = True
@@ -93,6 +135,9 @@ class EmergencyDecisionEngine:
         # Set shared flag if available
         if self.emergency_flag:
             self.emergency_flag.value = True
+        
+        # Sync to Cloud
+        self.push_to_firestore(reason)
             
         print("\n" + "!" * 60)
         print("🚨🚨🚨 EMERGENCY CONFIRMED 🚨🚨🚨")

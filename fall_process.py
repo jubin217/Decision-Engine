@@ -4,7 +4,7 @@ from multiprocessing import Queue
 from fall import SimpleHighAccuracyFallDetector
 
 
-def run_fall_process(event_queue: Queue, cam_index=0, emergency_flag=None):
+def run_fall_process(event_queue: Queue, cam_index=1, emergency_flag=None):
     detector = SimpleHighAccuracyFallDetector()
 
     def fall_state_callback(state, timestamp):
@@ -16,13 +16,37 @@ def run_fall_process(event_queue: Queue, cam_index=0, emergency_flag=None):
 
     detector.on_state_change = fall_state_callback
 
-    cap = cv2.VideoCapture(cam_index, cv2.CAP_DSHOW)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-    if not cap.isOpened():
+    # ✅ ROBUST CAMERA INITIALIZATION
+    cap = None
+    # Try different backends in order of preference for Windows
+    backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, None] 
+    
+    found = False
+    for backend in backends:
+        if found: break
+        for idx in [cam_index, 0, 1, 2]:
+            if backend is not None:
+                cap = cv2.VideoCapture(idx, backend)
+            else:
+                cap = cv2.VideoCapture(idx)
+            
+            if cap.isOpened():
+                # Test if we can actually read a frame
+                ret, _ = cap.read()
+                if ret:
+                    print(f"📷 Camera opened successfully (Index: {idx}, Backend: {backend})")
+                    found = True
+                    break
+                else:
+                    cap.release()
+    
+    if not found or cap is None:
+        print("❌ CRITICAL: Could not start any camera!")
         event_queue.put({"type": "error", "source": "camera"})
         return
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     # ✅ NEW: confirm camera + fall pipeline is alive
     event_queue.put({

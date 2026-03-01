@@ -1,4 +1,25 @@
-/.venv
-/__pycache__
-/emergency_logs
-/logs
+# Python
+/__pycache__/
+*.py[cod]
+*$py.class
+/.venv/
+/.env
+/logs/
+/emergency_logs/
+/recordings/
+*.pt
+
+# Node / React
+/website/node_modules/
+/website/dist/
+/website/.env
+/website/.env.local
+
+# Security (CRITICAL)
+service_account.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
